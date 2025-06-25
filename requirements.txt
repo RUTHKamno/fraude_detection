@@ -3,3 +3,4 @@ plotly
 reportlab
 scikit_learn
 openpyxl
+matplotlib
