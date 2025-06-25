@@ -1,3 +1,5 @@
+from matplotlib import pyplot as plt
+from sklearn.discriminant_analysis import StandardScaler
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -28,22 +30,19 @@ PREDICTION_DATA = {
 }
 
 genre_mapping = {
-    'F': 0,
-    'M': 1
+    'femelle': 0,
+    'male': 1
 }
 
 region_mapping = {
-    'Nord': 1,
-    'Sud': 2,
-    'Est': 3,
-    'Ouest': 4,
-    'Centre': 5
+    'Houston': 0.3950,
+    'Orlando': 0.3168,
+    'Miami': 0.2881,
 }
 
 type_carte_mapping = {
-    'Visa': 0,
-    'MasterCard': 1,
-    'American Express': 2
+    'Mastercard': 0,
+    'Visa': 1,
 }
 
 # CSS personnalisé pour le thème bleu-vert-rouge
@@ -304,20 +303,17 @@ def load_data():
         df = pd.read_csv('fraude_bancaire_synthetique_final.csv')
     except FileNotFoundError:
         # Générer des données synthétiques pour la démonstration
-        np.random.seed(42)
-        n_samples = 1000
-        df = pd.DataFrame({
-            'age': np.random.randint(18, 85, n_samples),
-            'salaire': np.random.randint(20000, 150000, n_samples),
-            'score_credit': np.random.randint(300, 850, n_samples),
-            'montant_transaction': np.random.uniform(10, 5000, n_samples),
-            'anciennete_compte': np.random.uniform(0.1, 20, n_samples),
-            'genre': np.random.choice(['M', 'F'], n_samples),
-            'region': np.random.choice(['Nord', 'Sud', 'Est', 'Ouest', 'Centre'], n_samples),
-            'type_carte': np.random.choice(['Visa', 'MasterCard', 'American Express'], n_samples),
-            'fraude': np.random.choice([0, 1], n_samples, p=[0.95, 0.05])
-        })
+        return
     return df
+@st.cache_data
+def load_data_clean():
+    # Simuler des données si le fichier n'existe pas
+    try:
+        data_clean = pd.read_csv('data_clean.csv')
+    except FileNotFoundError:
+        # Générer des données synthétiques pour la démonstration
+        return
+    return data_clean
 
 # Fonction pour charger le modèle (simulé)
 @st.cache_resource
@@ -327,13 +323,7 @@ def load_model():
         with open('model.pkl', 'rb') as file:
             model = pickle.load(file)
     except FileNotFoundError:
-        # Créer un modèle simulé pour la démonstration
-        from sklearn.ensemble import RandomForestClassifier
-        model = RandomForestClassifier(random_state=42)
-        # Simuler l'entraînement
-        X_dummy = np.random.rand(100, 8)
-        y_dummy = np.random.choice([0, 1], 100)
-        model.fit(X_dummy, y_dummy)
+       return
     return model
 
 # Fonction pour générer un rapport PDF
@@ -782,6 +772,7 @@ def show_statistiques():
 # Page prédiction
 def show_prediction():
     df = load_data()
+    data_clean = load_data_clean()
     st.markdown("## 🎯 Prédiction de Fraude")
     
     # Formulaire de prédiction (sans st.form)
@@ -820,14 +811,23 @@ def show_prediction():
                 'score_credit': [score_credit],
                 'montant_transaction': [montant],
                 'anciennete_compte': [anciennete],
-                'genre': [genre_mapping.get(genre, 0)],
+                'type_carte': [type_carte_mapping.get(type_carte, 0)],
                 'region': [region_mapping.get(region, 1)],
-                'type_carte': [type_carte_mapping.get(type_carte, 0)]
+                'genre': [genre_mapping.get(genre, 0)],
+                
+                
             })
+            st.table(input_data)
+            # standardisons input_data
+            scaler = StandardScaler()
+            data_clean = data_clean.drop(['fraude'], axis=1)
+            scaler.fit_transform(data_clean)
+            input_data_scaled = scaler.transform(input_data)
             
             # Prédiction
-            prediction = model.predict(input_data)[0]
-            probability = model.predict_proba(input_data)[0]
+            prediction = model.predict(input_data_scaled)[0]
+            probability = model.predict_proba(input_data_scaled)[0]
+
             
             # *** CORRECTION: Passer les valeurs originales de l'utilisateur ***
             user_inputs = {
@@ -840,7 +840,7 @@ def show_prediction():
                 'type_carte': type_carte,
                 'region': region
             }
-            
+                        
             # Mettre à jour le tableau global avec les valeurs originales
             update_prediction_data(user_inputs, prediction, probability)
             
@@ -869,6 +869,83 @@ def show_prediction():
                     </div>
                     """, unsafe_allow_html=True)
             
+            # *** NOUVEAU: Graphique des probabilités ***
+            st.markdown("### 📊 Visualisation des Probabilités")
+            
+            # Création des données pour le graphique
+            prob_data = pd.DataFrame({
+                'Classe': ['Légitime', 'Frauduleuse'],
+                'Probabilité': [probability[0], probability[1]],
+                'Couleur': ['#28a745' if probability[0] > probability[1] else '#6c757d', 
+                           '#dc3545' if probability[1] > probability[0] else '#6c757d']
+            })
+            
+            # Création du graphique avec matplotlib
+            fig, ax = plt.subplots(figsize=(8, 4))
+            bars = ax.bar(prob_data['Classe'], prob_data['Probabilité'], 
+                        color=prob_data['Couleur'], alpha=0.8, edgecolor='black', linewidth=1.5)
+
+            # Personnalisation du graphique
+            ax.set_ylabel('Probabilité', fontsize=12, fontweight='bold')
+            ax.set_xlabel('Type de Transaction', fontsize=12, fontweight='bold')
+            ax.set_title('Probabilités de Prédiction par Classe', fontsize=14, fontweight='bold', pad=15)
+            ax.set_ylim(0, 1)
+
+            # Ajout des valeurs sur les barres
+            for i, (bar, prob) in enumerate(zip(bars, prob_data['Probabilité'])):
+                height = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                    f'{prob:.1%}', ha='center', va='bottom', 
+                    fontsize=11, fontweight='bold')
+
+            # Ajout d'une ligne de référence à 50%
+            ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.7, linewidth=2)
+            ax.text(0.5, 0.52, 'Seuil de décision (50%)', ha='center', va='bottom', 
+                transform=ax.transData, fontsize=9, style='italic')
+
+            # Amélioration de l'apparence
+            ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['left'].set_linewidth(0.5)
+            ax.spines['bottom'].set_linewidth(0.5)
+
+            # Affichage du graphique dans Streamlit
+            st.pyplot(fig)
+            plt.close()  # Libérer la mémoire
+
+            # Alternative avec Plotly (plus interactif)
+            st.markdown("#### 📈 Graphique Interactif")
+            fig_plotly = px.bar(
+                prob_data, 
+                x='Classe', 
+                y='Probabilité',
+                color='Classe',
+                color_discrete_map={'Légitime': '#28a745', 'Frauduleuse': '#dc3545'},
+                title="Probabilités de Prédiction - Vue Interactive",
+                text='Probabilité'
+            )
+
+            # Personnalisation du graphique Plotly
+            fig_plotly.update_traces(
+                texttemplate='%{text:.1%}', 
+                textposition='outside',
+                textfont_size=12
+            )
+            fig_plotly.update_layout(
+                yaxis_title="Probabilité",
+                xaxis_title="Type de Transaction",
+                showlegend=False,
+                height=350,
+                yaxis=dict(range=[0, 1.1]),
+                title_font_size=14
+            )
+
+            # Ligne de référence à 50%
+            fig_plotly.add_hline(y=0.5, line_dash="dash", line_color="gray", 
+                            annotation_text="Seuil de décision (50%)")
+
+            st.plotly_chart(fig_plotly, use_container_width=True)
             # Détails de l'analyse
             st.markdown("### 📊 Détails de l'Analyse")
             col1, col2 = st.columns(2)
@@ -931,7 +1008,7 @@ def show_prediction():
             - Analyse des facteurs de risque
             - Recommandations personnalisées
             - Traçabilité complète
-            """)       
+            """)   
 def main():
     # Initialiser la session state
     if 'page' not in st.session_state:
