@@ -817,7 +817,6 @@ def show_prediction():
                 
                 
             })
-            st.table(input_data)
             # standardisons input_data
             scaler = StandardScaler()
             data_clean = data_clean.drop(['fraude'], axis=1)
